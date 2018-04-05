@@ -1,32 +1,15 @@
 GravitySnake = function(scene, input) {
-    let inputDelay = 150;
 
-    let TEXTURE_LOADER = "TEXTURE";
-    let FOREGROUND = 1;
-    let BACKGROUND = 0;
-    
-    let EMPTY = " ";
-    let SNAKE_HEAD = "s";
-    let SNAKE_BODY = "b";
-    let EXIT = "e";
-    let FRUIT = "f";
-    let WALL = "x";
+    let GRAV_TEXTURE;
+    let MATERIAL;
 
-    let GRAV_UP = "^";
-    let GRAV_DOWN = "v";
-    let GRAV_LEFT = "<";
-    let GRAV_RIGHT = ">";
-
-    let GRAV = {
-        [GRAV_UP]: {x: 0, y: 1},
-        [GRAV_DOWN]: {x: 0, y: -1},
-        [GRAV_LEFT]: {x: -1, y: 0},
-        [GRAV_RIGHT]: {x: 1, y: 0}
-    };
-
-    let LOADERS = {
-        [TEXTURE_LOADER]: new THREE.TextureLoader(),
-    };
+    let ACTIONS = {
+        [KeyCode.KEY_D]:()=>move(1, 0),
+        [KeyCode.KEY_A]:()=>move(-1, 0),
+        [KeyCode.KEY_W]:()=>move(0, 1),
+        [KeyCode.KEY_S]:()=>move(0, -1),
+        [KeyCode.KEY_R]:()=>restartLevel(),
+    }
 
     let ASSETS = [
         {
@@ -41,27 +24,7 @@ GravitySnake = function(scene, input) {
         }
     ];
 
-    let CUBE = new THREE.BoxGeometry( 1, 1, 1 );
-
-    let LAYER = {
-        [SNAKE_HEAD]:FOREGROUND,
-        [SNAKE_BODY]:FOREGROUND,
-        [FRUIT]:FOREGROUND,
-        
-        [EMPTY]:BACKGROUND,
-        [EXIT]:BACKGROUND,
-        [WALL]:BACKGROUND,
-
-        [GRAV_UP]:BACKGROUND,
-        [GRAV_DOWN]:BACKGROUND,
-        [GRAV_LEFT]:BACKGROUND,
-        [GRAV_RIGHT]:BACKGROUND,
-    }
-
-    let GRAV_TEXTURE;
-    let MATERIAL;
-
-    let customCreate = {
+    let POST_CREATION = {
         [GRAV_DOWN]: (obj)=> obj.rotation.z = Math.PI,
         [GRAV_LEFT]: (obj)=> obj.rotation.z = Math.PI * (1/2),
         [GRAV_RIGHT]: (obj)=> obj.rotation.z = Math.PI * (-1/2),
@@ -79,30 +42,81 @@ GravitySnake = function(scene, input) {
     let gameTime = 0;
     let nextInputTime = 0;
 
-    input.keyHandler = inputHandler;
+    input.keyHandler = (key) => ACTIONS[key] && ACTIONS[key]();
 
-    load(ASSETS, setup);
+    load(ASSETS);
 
-    function inputHandler(key){
-        switch(key){
-            case KeyCode.KEY_D:
-                move(1, 0);
-                break;
-            case KeyCode.KEY_A:
-                move(-1, 0);
-                break;
-            case KeyCode.KEY_W:
-                move(0, 1);
-                break;
-            case KeyCode.KEY_S:
-                move(0, -1);
-                break;
-            case KeyCode.KEY_R:
-                restartLevel();
-                break;
+    function setup(){
+        createMaterials();
+        createWorld(level);
+    }
+
+    this.update = function(time) {
+        gameTime = time;
+        tryAdvanceLevel();
+        updateGravity();
+        if( nextInputTime < gameTime && !isSupported(snake)){
+            if(isOutOfWorld(snake)){
+                return;
+            }
+            snake.forEach(p=>{ p.x += gravity.x; p.y+= gravity.y });
+            if(!isSupported(snake)){
+                nextInputTime = gameTime + inputDelay;
+            }
+        }
+        if(snake[0] && canEat(0, 0)){
+            eat(0, 0);
+            grow();
+        }
+
+        if(isOutOfWorld(snake)){
+            showGameOver();
+        }
+
+        if(snake[0] && isStuck()){
+            showGameOver();
         }
     }
 
+    function load(assets){
+        for(let i = 0; i < assets.length; i++){
+            let asset = assets[i]
+            LOADERS[asset.loader].load(asset.path, handleLoad(asset, assets), undefined, handleFail(asset, assets));
+        }
+    }
+    
+    function handleLoad(asset, assets){
+        return (t)=> {
+            asset.set(t);
+            asset.loaded = true;
+            if(isLoaded(assets)){
+                setup();
+            }
+        };
+    }
+    
+    function handleFail(asset, assets){
+        return (err)=>{ 
+            console.error("error while loading " + err);
+            asset.loaded = true; 
+            if(isLoaded(assets)){
+                setup();
+            }
+        };
+    }
+
+    function isLoaded(assets){
+        return assets.every(x=>x.loaded);
+    }
+
+    function isStuck(){
+        return !canMove(1, 0) && !canMove(-1, 0) && !canMove(0, 1) && !canMove(0, -1);
+    }
+
+    function showGameOver(){
+        setInfo("Game Over. 'R' to restart.");
+    }
+    
     function isOutOfWorld(part){
         if(Array.isArray(part)){
             return part.some(isOutOfWorld);
@@ -131,6 +145,28 @@ GravitySnake = function(scene, input) {
             }
         }
         return true;
+    }
+
+    function move(x, y){
+        if(!canMove(x, y) || !isSupported(snake) || nextInputTime > gameTime){
+            return;
+        }
+        if(canEat(x, y)){
+            eat(x, y);
+            grow();
+        }
+        updateSnake(x, y);
+        nextInputTime = gameTime + inputDelay;
+    }
+
+    function updateSnake(x, y){
+        for(let i = snake.length - 1; i > 0; i--){
+            snake[i].x = snake[i - 1].x;
+            snake[i].y = snake[i - 1].y;
+            snake[i].z = snake[i - 1].z;
+        }
+        snake[0].x += x;
+        snake[0].y += y;
     }
 
     function canMove(x, y){
@@ -195,28 +231,6 @@ GravitySnake = function(scene, input) {
         snake.push(create(last.x, last.y, SNAKE_BODY).position);
     }
 
-    function move(x, y){
-        if(!canMove(x, y) || !isSupported(snake) || nextInputTime > gameTime){
-            return;
-        }
-        if(canEat(x, y)){
-            eat(x, y);
-            grow();
-        }
-        updateSnake(x, y);
-        nextInputTime = gameTime + inputDelay;
-    }
-
-    function updateSnake(x, y){
-        for(let i = snake.length - 1; i > 0; i--){
-            snake[i].x = snake[i - 1].x;
-            snake[i].y = snake[i - 1].y;
-            snake[i].z = snake[i - 1].z;
-        }
-        snake[0].x += x;
-        snake[0].y += y;
-    }
-
     function updateGravity(){
         if(snake && snake[0] && !isOutOfWorld(snake[0])){
             let ij = toIJ(snake[0], world);
@@ -236,81 +250,6 @@ GravitySnake = function(scene, input) {
                 }
             }
         }
-    }
-
-    this.update = function(time) {
-        gameTime = time;
-        tryAdvanceLevel();
-        updateGravity();
-        if( nextInputTime < gameTime && !isSupported(snake)){
-            if(isOutOfWorld(snake)){
-                return;
-            }
-            snake.forEach(p=>{ p.x += gravity.x; p.y+= gravity.y });
-            if(!isSupported(snake)){
-                nextInputTime = gameTime + inputDelay;
-            }
-        }
-        if(snake[0] && canEat(0, 0)){
-            eat(0, 0);
-            grow();
-        }
-
-        if(isOutOfWorld(snake)){
-            showGameOver();
-        }
-
-        if(snake[0] && isStuck()){
-            showGameOver();
-        }
-    }
-
-    function isStuck(){
-        return !canMove(1, 0) && !canMove(-1, 0) && !canMove(0, 1) && !canMove(0, -1);
-    }
-
-    function showGameOver(){
-        setInfo("Game Over. 'R' to restart.");
-    }
-
-    function toXY(ij, template){
-        return {x: ij.j, y: template.length - ij.i - 1,};
-    }
-
-    function toIJ(xy, template){
-        return {i: template.length - xy.y - 1, j: xy.x};
-    }
-
-    function load(assets, onDone){
-        for(let i = 0; i < assets.length; i++){
-            let asset = assets[i]
-            LOADERS[asset.loader].load(asset.path, 
-                (t)=> {
-                    asset.set(t);
-                    asset.loaded = true;
-                    if(isLoaded(assets)){
-                        onDone();
-                    }
-                },
-                undefined,
-                (err)=>{ 
-                    console.error("error while loading " + err);
-                    asset.loaded = true; 
-                    if(isLoaded(assets)){
-                        onDone();
-                    }
-                }
-            )
-        }
-    }
-
-    function isLoaded(assets){
-        return assets.map(x=>x.loaded).reduce((a, b) => a && b, true);
-    }
-
-    function setup(){
-        createMaterials();
-        createWorld(level);
     }
 
     function createMaterials(){
@@ -376,38 +315,37 @@ GravitySnake = function(scene, input) {
         for(let i = 0; i < level.length; i++){
             world[i] = [];
             for(let j = 0; j < level[i].length; j++){
-                let type = level[i][j];
-                let xy = toXY({i,j}, level);
-                //is snake part
-                if(type != EMPTY && isSnakePart(type)){
-                    addSnakePart(xy, type);
-                    type = EMPTY;
-                }else if(type === FRUIT){
-                    fruit.push(create(xy.x, xy.y, FRUIT, customCreate[FRUIT]).position);
-                    type = EMPTY;
-                }
-                let obj = create(xy.x, xy.y, type, customCreate[type]);
-                world[i][j] = type;
-                if(level[i][j] === EXIT){
-                    exits.push(obj);
-                }
+                placeTile(level, i, j);
             }
         }
 
         scene.add(sceneGroup);
     }
 
-    function setInfo(text){
-        document.getElementById("info").innerHTML = text || "[W, S, A, D] to move. [R] to restart";
+    function placeTile(level, i, j){
+        let type = level[i][j];
+        let xy = toXY({i,j}, level);
+
+        if(type != EMPTY && isSnakePart(type)){
+            addSnakePart(xy, type);
+            type = EMPTY;
+        }else if(type === FRUIT){
+            fruit.push(create(xy.x, xy.y, FRUIT, POST_CREATION[FRUIT]).position);
+            type = EMPTY;
+        }
+
+        let obj = create(xy.x, xy.y, type, POST_CREATION[type]);
+
+        world[i][j] = type;
+
+        if(type === EXIT){
+            exits.push(obj);
+        }
     }
 
     function addSnakePart(xy, type){
         let snakePart = type == 0 ? SNAKE_HEAD : SNAKE_BODY;
-        snake[type] = create(xy.x, xy.y, snakePart, customCreate[snakePart]).position;
-    }
-
-    function isSnakePart(type){
-        return !isNaN(type);
+        snake[type] = create(xy.x, xy.y, snakePart, POST_CREATION[snakePart]).position;
     }
 
     function create(x, y, type, post){
@@ -421,5 +359,21 @@ GravitySnake = function(scene, input) {
         sceneGroup.add(thing);
         thing.position.id = thing.id;
         return thing;
+    }
+
+    function setInfo(text){
+        document.getElementById("info").innerHTML = text || "[W, S, A, D] to move. [R] to restart";
+    }
+
+    function isSnakePart(type){
+        return !isNaN(type);
+    }
+
+    function toXY(ij, template){
+        return {x: ij.j, y: template.length - ij.i - 1,};
+    }
+
+    function toIJ(xy, template){
+        return {i: template.length - xy.y - 1, j: xy.x};
     }
 }

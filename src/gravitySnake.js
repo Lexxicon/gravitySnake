@@ -1,6 +1,5 @@
 GravitySnake = function(scene, input) {
-    let moveDelay = 150;
-
+    let inputDelay = 150;
 
     let TEXTURE_LOADER = "TEXTURE";
     let FOREGROUND = 1;
@@ -23,61 +22,6 @@ GravitySnake = function(scene, input) {
         [GRAV_DOWN]: {x: 0, y: -1},
         [GRAV_LEFT]: {x: -1, y: 0},
         [GRAV_RIGHT]: {x: 1, y: 0}
-    };
-
-    let LEVELS = {
-        world_one: {
-            level: [
-                "        ",
-                "        ",
-                "        ",
-                "        ",
-                "        ",
-                " 10 f e ",
-                "xxxxxxxx",
-            ],
-            info: "[W, S, A, D] to move",
-            nextLevel: "world_two"
-        },
-        world_two: {
-            level: [
-                "        ",
-                "        ",
-                "        ",
-                "        ",
-                "        ",
-                " 10 f e ",
-                "xxx x   ",
-            ],
-            info: "[W, S, A, D] to move",
-            nextLevel: "world_three"
-        },
-        world_three: {
-            level: [
-                "        ",
-                "        ",
-                " e      ",
-                "        ",
-                " x      ",
-                " 10 f   ",
-                "xxx x   ",
-            ],
-            info: "[W, S, A, D] to move",
-            nextLevel: "world_four"
-        },
-        world_four: {
-            level: [
-                "xxxxxxxx",
-                "    f  e",
-                "        ",
-                "        ",
-                "   ^    ",
-                " 10     ",
-                "xxx     ",
-            ],
-            info: "[W, S, A, D] to move",
-            nextLevel: ""
-        }
     };
 
     let LOADERS = {
@@ -133,15 +77,35 @@ GravitySnake = function(scene, input) {
     let world = [[]];
 
     let gameTime = 0;
-    let nextMoveTime = 0;
+    let nextInputTime = 0;
 
     input.keyHandler = inputHandler;
 
     load(ASSETS, setup);
 
+    function inputHandler(key){
+        switch(key){
+            case KeyCode.KEY_D:
+                move(1, 0);
+                break;
+            case KeyCode.KEY_A:
+                move(-1, 0);
+                break;
+            case KeyCode.KEY_W:
+                move(0, 1);
+                break;
+            case KeyCode.KEY_S:
+                move(0, -1);
+                break;
+            case KeyCode.KEY_R:
+                restartLevel();
+                break;
+        }
+    }
+
     function isOutOfWorld(part){
         if(Array.isArray(part)){
-            return part.map(isOutOfWorld).reduce((a, b)=> a || b, false);
+            return part.some(isOutOfWorld);
         }
         let ij = toIJ(part, world);
         return (ij.i < 0 || ij.j < 0 || ij.i >= world.length || ij.j >= world[ij.i].length);
@@ -170,26 +134,36 @@ GravitySnake = function(scene, input) {
     }
 
     function canMove(x, y){
-        let adjPart = {x: x + snake[0].x, y: y + snake[0].y};
-        let ij = toIJ(adjPart, world);
-        if(isOutOfWorld(adjPart)){
+        let testSquare = {x: x + snake[0].x, y: y + snake[0].y};
+
+        if(isOutOfWorld(testSquare)){
             return false;
         }
 
-        if(world[ij.i][ij.j] === WALL){
+        if(isWall(testSquare)){
             return false;
         }
 
-        let eatSelf = snake.map(p=>p.x === adjPart.x && p.y === adjPart.y).reduce((a, b)=> a || b, false);
-        if(eatSelf){
+        if(isOccupied(testSquare)){
             return false;
         }
 
-        if(-x === gravity.x && -y === gravity.y && isOnlyLastSupported(snake) && isStraight(snake, x === 0 ? "x" : "y")){
+        if(wouldJump(testSquare)){
             return false;
         }
 
         return true;
+    }
+
+    function isWall(xy){
+        let ij = toIJ(xy, world);
+       return world[ij.i][ij.j] === WALL;
+    }
+    function wouldJump(xy){
+        return -xy.x === gravity.x && -xy.y === gravity.y && isOnlyLastSupported(snake) && isStraight(snake, xy.x === 0 ? "x" : "y");
+    }
+    function isOccupied(xy){
+        return snake.some(p=>p.x === xy.x && p.y === xy.y);
     }
 
     function isStraight(snake, field){
@@ -222,13 +196,18 @@ GravitySnake = function(scene, input) {
     }
 
     function move(x, y){
-        if(!canMove(x, y) || !isSupported(snake) || nextMoveTime > gameTime){
+        if(!canMove(x, y) || !isSupported(snake) || nextInputTime > gameTime){
             return;
         }
         if(canEat(x, y)){
             eat(x, y);
             grow();
         }
+        updateSnake(x, y);
+        nextInputTime = gameTime + inputDelay;
+    }
+
+    function updateSnake(x, y){
         for(let i = snake.length - 1; i > 0; i--){
             snake[i].x = snake[i - 1].x;
             snake[i].y = snake[i - 1].y;
@@ -236,7 +215,6 @@ GravitySnake = function(scene, input) {
         }
         snake[0].x += x;
         snake[0].y += y;
-        nextMoveTime = gameTime + moveDelay;
     }
 
     function updateGravity(){
@@ -246,15 +224,15 @@ GravitySnake = function(scene, input) {
         }
     }
 
-    function tryExit(){
-        if(fruit.length === 0 && world && snake[0]){
+    function tryAdvanceLevel(){
+        if(fruit.length === 0 && world && snake[0] && !isOutOfWorld(snake[0])){
             let ij = toIJ(snake[0], world);
             if(world[ij.i][ij.j] === EXIT){
                 if(level.nextLevel && LEVELS[level.nextLevel]){
                     level = LEVELS[level.nextLevel];
                     restartLevel();
                 }else{
-                    document.getElementById("info").innerHTML = "You win!";
+                    setInfo("You win!");
                 }
             }
         }
@@ -262,15 +240,15 @@ GravitySnake = function(scene, input) {
 
     this.update = function(time) {
         gameTime = time;
-        tryExit();
+        tryAdvanceLevel();
         updateGravity();
-        if( nextMoveTime < gameTime && !isSupported(snake)){
+        if( nextInputTime < gameTime && !isSupported(snake)){
             if(isOutOfWorld(snake)){
                 return;
             }
             snake.forEach(p=>{ p.x += gravity.x; p.y+= gravity.y });
             if(!isSupported(snake)){
-                nextMoveTime = gameTime + moveDelay;
+                nextInputTime = gameTime + inputDelay;
             }
         }
         if(snake[0] && canEat(0, 0)){
@@ -282,13 +260,17 @@ GravitySnake = function(scene, input) {
             showGameOver();
         }
 
-        if(snake[0] && !canMove(1, 0) && !canMove(-1, 0) && !canMove(0, 1) && !canMove(0, -1)){
+        if(snake[0] && isStuck()){
             showGameOver();
         }
     }
 
+    function isStuck(){
+        return !canMove(1, 0) && !canMove(-1, 0) && !canMove(0, 1) && !canMove(0, -1);
+    }
+
     function showGameOver(){
-        document.getElementById("info").innerHTML = "Game Over. 'R' to restart."
+        setInfo("Game Over. 'R' to restart.");
     }
 
     function toXY(ij, template){
@@ -311,7 +293,13 @@ GravitySnake = function(scene, input) {
                     }
                 },
                 undefined,
-                (err)=> console.error("error while loading " + err)
+                (err)=>{ 
+                    console.error("error while loading " + err);
+                    asset.loaded = true; 
+                    if(isLoaded(assets)){
+                        onDone();
+                    }
+                }
             )
         }
     }
@@ -364,27 +352,7 @@ GravitySnake = function(scene, input) {
         createWorld(level);
     }
 
-    function inputHandler(key){
-        switch(key){
-            case KeyCode.KEY_D:
-                move(1, 0);
-                break;
-            case KeyCode.KEY_A:
-                move(-1, 0);
-                break;
-            case KeyCode.KEY_W:
-                move(0, 1);
-                break;
-            case KeyCode.KEY_S:
-                move(0, -1);
-                break;
-            case KeyCode.KEY_R:
-                restartLevel();
-                break;
-        }
-    }
-
-    function createWorld(template){
+    function unloadLevel(){
         if(sceneGroup){
             scene.remove(sceneGroup);
         }
@@ -396,9 +364,13 @@ GravitySnake = function(scene, input) {
         snake = [];
         fruit = [];
         exits = [];
+    }
+
+    function createWorld(template){
+        unloadLevel();
         gravity = GRAV[template.gravity] || GRAV[GRAV_DOWN];
 
-        document.getElementById("info").innerHTML = template.info || "[W, S, A, D] to move";
+        setInfo(template.info);
 
         let level = template.level;
         for(let i = 0; i < level.length; i++){
@@ -407,9 +379,8 @@ GravitySnake = function(scene, input) {
                 let type = level[i][j];
                 let xy = toXY({i,j}, level);
                 //is snake part
-                if(type != EMPTY && !isNaN(type)){
-                    let snakePart = type == 0 ? SNAKE_HEAD : SNAKE_BODY;
-                    snake[type] = create(xy.x, xy.y, snakePart, customCreate[snakePart]).position;
+                if(type != EMPTY && isSnakePart(type)){
+                    addSnakePart(xy, type);
                     type = EMPTY;
                 }else if(type === FRUIT){
                     fruit.push(create(xy.x, xy.y, FRUIT, customCreate[FRUIT]).position);
@@ -424,6 +395,19 @@ GravitySnake = function(scene, input) {
         }
 
         scene.add(sceneGroup);
+    }
+
+    function setInfo(text){
+        document.getElementById("info").innerHTML = text || "[W, S, A, D] to move. [R] to restart";
+    }
+
+    function addSnakePart(xy, type){
+        let snakePart = type == 0 ? SNAKE_HEAD : SNAKE_BODY;
+        snake[type] = create(xy.x, xy.y, snakePart, customCreate[snakePart]).position;
+    }
+
+    function isSnakePart(type){
+        return !isNaN(type);
     }
 
     function create(x, y, type, post){
